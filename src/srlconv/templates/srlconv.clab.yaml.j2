@@ -2,14 +2,14 @@ name: conversion
 prefix: ""
 topology:
   nodes:
-    old:
+    srl-current:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:{{ current_version }}
       # provide the startup config file to convert
       # can be a full config in json, or a partial config in cli format
       startup-config: {{ current_config }}
       type: {{ current_type }}
-    new:
+    srl-target:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:{{ target_version }}
       binds:

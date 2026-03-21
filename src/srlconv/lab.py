@@ -10,16 +10,22 @@ from jinja2 import Environment, PackageLoader
 
 _LOG = logging.getLogger(__name__)
 
+# Must match `name:` in srlconv.clab.yaml.j2 (used in paths under conversion_files).
+LAB_NAME = "conversion"
+# Topology node that carries the source (current) configuration; used for `clab save --node-filter`.
+CURRENT_TOPOLOGY_NODE = "srl-current"
+# Node that receives the converted config upgrade.
+TARGET_TOPOLOGY_NODE = "srl-target"
+
 
 def normalize_srlinux_version(value: str) -> str:
-    """Normalize SR Linux version string so that it is always in the format of '25.10.1'."""
+    """Strip whitespace and optional leading v/V for container image tags (e.g. v25.10.1 -> 25.10.1)."""
     v = value.strip()
     if not v:
         return v
     if v.startswith(("v", "V")):
         return v[1:]
-    return v.lower()
-    return "v" + v
+    return v
 
 
 def _find_containerlab_cli() -> str | None:
@@ -38,7 +44,7 @@ def prepare_and_deploy(
     target_version: str,
     target_type: str,
 ) -> Path:
-    """Write topology and conversion_files under a temp directory and run containerlab deploy."""
+    """Deploy lab, save current config, chmod, then run tools upgrade in srl-target (clab exec + sr_cli)."""
     config_path = current_config.resolve()
     if not config_path.is_file():
         msg = f"Configuration file not found: {config_path}"
@@ -77,6 +83,65 @@ def prepare_and_deploy(
     _LOG.info("Running: %s deploy -t %s (cwd=%s)", cli, topology_path.name, workdir)
     subprocess.run(
         [cli, "deploy", "-t", topology_path.name],
+        cwd=workdir,
+        check=True,
+    )
+
+    _LOG.info(
+        "Running: %s save --copy %s --node-filter %s -t %s",
+        cli,
+        conversion_files,
+        CURRENT_TOPOLOGY_NODE,
+        topology_path,
+    )
+    subprocess.run(
+        [
+            cli,
+            "save",
+            "--copy",
+            str(conversion_files.resolve()),
+            "--node-filter",
+            CURRENT_TOPOLOGY_NODE,
+            "-t",
+            str(topology_path.resolve()),
+        ],
+        cwd=workdir,
+        check=True,
+    )
+
+    _LOG.info("Running: chmod -R 777 %s", conversion_files)
+    subprocess.run(
+        ["chmod", "-R", "777", str(conversion_files.resolve())],
+        check=True,
+    )
+
+    upgrade_file_in_target = (
+        f"/home/admin/conversion_files/clab-{LAB_NAME}/"
+        f"{CURRENT_TOPOLOGY_NODE}/config.json"
+    )
+    tools_line = (
+        f"tools system configuration upgrade file {upgrade_file_in_target}"
+    )
+    # Same line as in an interactive SR Linux session; wrapped for non-interactive use.
+    exec_cmd = f'sr_cli "{tools_line}"'
+    _LOG.info(
+        "Running: %s exec -t %s --label clab-node-name=%s --cmd %r",
+        cli,
+        topology_path.name,
+        TARGET_TOPOLOGY_NODE,
+        exec_cmd,
+    )
+    subprocess.run(
+        [
+            cli,
+            "exec",
+            "-t",
+            str(topology_path.resolve()),
+            "--label",
+            f"clab-node-name={TARGET_TOPOLOGY_NODE}",
+            "--cmd",
+            exec_cmd,
+        ],
         cwd=workdir,
         check=True,
     )
