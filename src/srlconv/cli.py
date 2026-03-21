@@ -101,7 +101,15 @@ def convert_cmd(
     log = logging.getLogger("srlconv")
     effective_target_type = target_type if target_type is not None else current_type
     try:
-        workdir, converted_path, cli_path, cli_flat_path = lab.prepare_and_deploy(
+        (
+            workdir,
+            orig_cfg_path,
+            orig_cli_path,
+            orig_cli_flat_path,
+            converted_path,
+            cli_path,
+            cli_flat_path,
+        ) = lab.prepare_and_deploy(
             current_version=current_version,
             current_config=current_config,
             current_type=current_type,
@@ -119,6 +127,9 @@ def convert_cmd(
         raise typer.Exit(1) from e
     log.info("Topology deployed; lab files kept under %s", workdir)
     rich_print(f"Lab workspace: {workdir}")
-    rich_print(f"Converted config: {converted_path}")
-    rich_print(f"CLI config: {cli_path}")
-    rich_print(f"CLI-Flat config: {cli_flat_path}")
+    rich_print(f"Original config (JSON): {orig_cfg_path}")
+    rich_print(f"Original CLI: {orig_cli_path}")
+    rich_print(f"Original CLI-Flat: {orig_cli_flat_path}")
+    rich_print(f"Converted config (JSON): {converted_path}")
+    rich_print(f"Converted CLI: {cli_path}")
+    rich_print(f"Converted CLI-Flat: {cli_flat_path}")

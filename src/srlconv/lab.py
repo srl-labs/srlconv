@@ -70,19 +70,20 @@ def _stdout_from_clab_exec_json(collection_json: str) -> str:
     return collection_json
 
 
-def _clab_exec_target_capture_json(
+def _clab_exec_node_capture_json(
     *,
     cli: str,
     topology_file: str,
     workdir: Path,
+    node_name: str,
     cmd: str,
 ) -> str:
-    """Run ``clab exec --format json`` and return decoded command stdout (not the wrapper tree)."""
+    """Run ``clab exec -f json`` on a node and return decoded command stdout (not the wrapper tree)."""
     _LOG.info(
         "Running: %s exec -f json -t %s --label clab-node-name=%s --cmd %r",
         cli,
         topology_file,
-        TARGET_TOPOLOGY_NODE,
+        node_name,
         cmd,
     )
     proc = subprocess.run(
@@ -94,7 +95,7 @@ def _clab_exec_target_capture_json(
             "-f",
             "json",
             "--label",
-            f"clab-node-name={TARGET_TOPOLOGY_NODE}",
+            f"clab-node-name={node_name}",
             "--cmd",
             cmd,
         ],
@@ -155,8 +156,8 @@ def prepare_and_deploy(
     current_type: str,
     target_version: str,
     target_type: str,
-) -> tuple[Path, Path, Path, Path]:
-    """Deploy lab, convert JSON, load candidate on target, copy JSON + CLI + CLI-Flat under ``converted/``."""
+) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
+    """Deploy lab; store original + converted JSON and CLI dumps under ``converted/``."""
     config_path = current_config.resolve()
     if not config_path.is_file():
         msg = f"Configuration file not found: {config_path}"
@@ -245,6 +246,41 @@ def prepare_and_deploy(
         check=True,
     )
 
+    converted_dir = workdir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_json = (
+        conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
+    )
+    if not saved_json.is_file():
+        msg = f"Expected saved config not found: {saved_json}"
+        raise FileNotFoundError(msg)
+    out_current_cfg = converted_dir / f"{cv}.cfg.json"
+    shutil.copy2(saved_json, out_current_cfg)
+    _LOG.info("Wrote original JSON: %s", out_current_cfg)
+
+    cur_cli_txt = _clab_exec_node_capture_json(
+        cli=cli,
+        topology_file=topology_file,
+        workdir=workdir,
+        node_name=CURRENT_TOPOLOGY_NODE,
+        cmd=_SR_CLI_INFO_CANDIDATE,
+    )
+    out_current_cli = converted_dir / f"{cv}.cli.txt"
+    out_current_cli.write_text(cur_cli_txt, encoding="utf-8")
+    _LOG.info("Wrote original CLI config: %s", out_current_cli)
+
+    cur_cli_flat_txt = _clab_exec_node_capture_json(
+        cli=cli,
+        topology_file=topology_file,
+        workdir=workdir,
+        node_name=CURRENT_TOPOLOGY_NODE,
+        cmd=_SR_CLI_INFO_FLAT,
+    )
+    out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
+    out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
+    _LOG.info("Wrote original CLI-Flat config: %s", out_current_cli_flat)
+
     upgrade_file_in_target = (
         f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
     )
@@ -266,37 +302,38 @@ def prepare_and_deploy(
         cmd=load_exec,
     )
 
-    converted_dir = workdir / "converted"
-    converted_dir.mkdir(parents=True, exist_ok=True)
+    out_target_cfg = converted_dir / f"{tv}.cfg.json"
+    shutil.copy2(saved_json, out_target_cfg)
+    _LOG.info("Wrote converted configuration: %s", out_target_cfg)
 
-    upgraded_json = (
-        conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
-    )
-    if not upgraded_json.is_file():
-        msg = f"Expected converted config not found: {upgraded_json}"
-        raise FileNotFoundError(msg)
-    out_cfg = converted_dir / f"{tv}.cfg.json"
-    shutil.copy2(upgraded_json, out_cfg)
-    _LOG.info("Wrote converted configuration: %s", out_cfg)
-
-    cli_txt = _clab_exec_target_capture_json(
+    tgt_cli_txt = _clab_exec_node_capture_json(
         cli=cli,
         topology_file=topology_file,
         workdir=workdir,
+        node_name=TARGET_TOPOLOGY_NODE,
         cmd=_SR_CLI_INFO_CANDIDATE,
     )
-    out_cli = converted_dir / f"{tv}.cli.txt"
-    out_cli.write_text(cli_txt, encoding="utf-8")
-    _LOG.info("Wrote CLI config: %s", out_cli)
+    out_target_cli = converted_dir / f"{tv}.cli.txt"
+    out_target_cli.write_text(tgt_cli_txt, encoding="utf-8")
+    _LOG.info("Wrote converted CLI config: %s", out_target_cli)
 
-    cli_flat_txt = _clab_exec_target_capture_json(
+    tgt_cli_flat_txt = _clab_exec_node_capture_json(
         cli=cli,
         topology_file=topology_file,
         workdir=workdir,
+        node_name=TARGET_TOPOLOGY_NODE,
         cmd=_SR_CLI_INFO_FLAT,
     )
-    out_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
-    out_cli_flat.write_text(cli_flat_txt, encoding="utf-8")
-    _LOG.info("Wrote CLI-Flat config: %s", out_cli_flat)
+    out_target_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
+    out_target_cli_flat.write_text(tgt_cli_flat_txt, encoding="utf-8")
+    _LOG.info("Wrote converted CLI-Flat config: %s", out_target_cli_flat)
 
-    return workdir, out_cfg, out_cli, out_cli_flat
+    return (
+        workdir,
+        out_current_cfg,
+        out_current_cli,
+        out_current_cli_flat,
+        out_target_cfg,
+        out_target_cli,
+        out_target_cli_flat,
+    )
