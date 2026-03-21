@@ -101,7 +101,7 @@ def convert_cmd(
     log = logging.getLogger("srlconv")
     effective_target_type = target_type if target_type is not None else current_type
     try:
-        workdir = lab.prepare_and_deploy(
+        workdir, converted_path = lab.prepare_and_deploy(
             current_version=current_version,
             current_config=current_config,
             current_type=current_type,
@@ -119,3 +119,4 @@ def convert_cmd(
         raise typer.Exit(1) from e
     log.info("Topology deployed; lab files kept under %s", workdir)
     rich_print(f"Lab workspace: {workdir}")
+    rich_print(f"Converted config: {converted_path}")

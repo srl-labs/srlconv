@@ -43,8 +43,8 @@ def prepare_and_deploy(
     current_type: str,
     target_version: str,
     target_type: str,
-) -> Path:
-    """Deploy lab, save current config, chmod, then run tools upgrade in srl-target (clab exec + sr_cli)."""
+) -> tuple[Path, Path]:
+    """Deploy lab, save current config, run tools upgrade on srl-target (in-place JSON), copy to ``converted/<ver>.cfg.json``."""
     config_path = current_config.resolve()
     if not config_path.is_file():
         msg = f"Configuration file not found: {config_path}"
@@ -145,4 +145,17 @@ def prepare_and_deploy(
         cwd=workdir,
         check=True,
     )
-    return workdir
+
+    converted_dir = workdir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
+    upgraded_json = (
+        conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
+    )
+    if not upgraded_json.is_file():
+        msg = f"Expected converted config not found: {upgraded_json}"
+        raise FileNotFoundError(msg)
+    out_cfg = converted_dir / f"{tv}.cfg.json"
+    shutil.copy2(upgraded_json, out_cfg)
+    _LOG.info("Wrote converted configuration: %s", out_cfg)
+
+    return workdir, out_cfg
