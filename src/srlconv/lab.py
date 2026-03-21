@@ -28,9 +28,9 @@ LOAD_CONFIG_HOST_RELPATH = "load_config"
 # ``clab exec -f json`` wraps results; ``stdout`` holds sr_cli output (string or embedded JSON).
 _SR_CLI_INFO_CANDIDATE = "sr_cli -e -d -- info /"
 _SR_CLI_INFO_FLAT = "sr_cli -e -d -- info flat /"
-# Pipe is md-cli ``| as json``; ``sh -c`` avoids host/shell mishandling of ``|``.
-_SR_CLI_DISCOVERY_DETAIL = (
-    'sh -c \'sr_cli -e -d -- "info detail depth 1 / | as json"\''
+# Command to list YANG containers and lists
+_SR_CLI_CONTAINER_LIST_DISCOVER_CMD = (
+    'sr_cli -e -d -- "info detail depth 1 / | as json"'
 )
 
 
@@ -353,7 +353,7 @@ def prepare_and_deploy(
         topology_file=topology_file,
         workdir=workdir,
         node_name=CURRENT_TOPOLOGY_NODE,
-        cmd=_SR_CLI_DISCOVERY_DETAIL,
+        cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
     )
     yang_structure["current"] = _parse_top_level_yang_structure(detail_current_raw)
     _LOG.info(
@@ -425,7 +425,7 @@ def prepare_and_deploy(
         topology_file=topology_file,
         workdir=workdir,
         node_name=TARGET_TOPOLOGY_NODE,
-        cmd=_SR_CLI_DISCOVERY_DETAIL,
+        cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
     )
     yang_structure["target"] = _parse_top_level_yang_structure(detail_target_raw)
     _LOG.info(
