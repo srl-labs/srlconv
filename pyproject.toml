@@ -1,0 +1,16 @@
+[project]
+name = "srlconv"
+version = "0.1.0"
+description = "Convert Nokia SR Linux configuration between versions"
+requires-python = ">=3.13"
+dependencies = ["typer>=0.12.0", "rich>=13.0.0"]
+
+[project.scripts]
+srlconv = "srlconv.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/srlconv"]
