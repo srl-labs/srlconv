@@ -1,4 +1,4 @@
-name: conversion
+name: {{ lab_name }}
 prefix: ""
 topology:
   nodes:
@@ -13,5 +13,6 @@ topology:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:{{ target_version }}
       binds:
-        - conversion_files:/home/admin/conversion_files
+        - conversion_files:{{ conversion_files_mount }}
+        - load_config:{{ load_config_mount }}
       type: {{ target_type }}

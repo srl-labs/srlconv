@@ -10,12 +10,18 @@ from jinja2 import Environment, PackageLoader
 
 _LOG = logging.getLogger(__name__)
 
-# Must match `name:` in srlconv.clab.yaml.j2 (used in paths under conversion_files).
+# Must match ``lab_name`` in srlconv.clab.yaml.j2 (used in paths under conversion_files).
 LAB_NAME = "conversion"
 # Topology node that carries the source (current) configuration; used for `clab save --node-filter`.
 CURRENT_TOPOLOGY_NODE = "srl-current"
 # Node that receives the converted config upgrade.
 TARGET_TOPOLOGY_NODE = "srl-target"
+
+# srl-target bind destinations (must match srlconv.clab.yaml.j2).
+CONVERSION_FILES_MOUNT = "/home/admin/conversion_files"
+LOAD_CONFIG_MOUNT = "/home/admin/load_config"
+# Host path relative to lab workdir; must match the bind source in the topology template.
+LOAD_CONFIG_HOST_RELPATH = "load_config"
 
 
 def normalize_srlinux_version(value: str) -> str:
@@ -44,7 +50,7 @@ def prepare_and_deploy(
     target_version: str,
     target_type: str,
 ) -> tuple[Path, Path]:
-    """Deploy lab, save current config, run tools upgrade on srl-target (in-place JSON), copy to ``converted/<ver>.cfg.json``."""
+    """Deploy lab, save current config, upgrade JSON in place, load it into candidate on target, copy to ``converted/<ver>.cfg.json``."""
     config_path = current_config.resolve()
     if not config_path.is_file():
         msg = f"Configuration file not found: {config_path}"
@@ -61,8 +67,24 @@ def prepare_and_deploy(
         loader=PackageLoader("srlconv", "templates"),
         autoescape=False,
     )
+
+    load_config_path = workdir / LOAD_CONFIG_HOST_RELPATH
+    load_body = env.get_template("load_config.j2").render(
+        lab_name=LAB_NAME,
+        conversion_files_mount=CONVERSION_FILES_MOUNT,
+        current_topology_node=CURRENT_TOPOLOGY_NODE,
+    )
+    load_config_path.write_text(load_body, encoding="utf-8")
+    subprocess.run(
+        ["chmod", "666", str(load_config_path.resolve())],
+        check=True,
+    )
+
     template = env.get_template("srlconv.clab.yaml.j2")
     body = template.render(
+        lab_name=LAB_NAME,
+        conversion_files_mount=CONVERSION_FILES_MOUNT,
+        load_config_mount=LOAD_CONFIG_MOUNT,
         current_version=cv,
         current_config=str(config_path),
         current_type=current_type,
@@ -116,7 +138,7 @@ def prepare_and_deploy(
     )
 
     upgrade_file_in_target = (
-        f"/home/admin/conversion_files/clab-{LAB_NAME}/"
+        f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/"
         f"{CURRENT_TOPOLOGY_NODE}/config.json"
     )
     tools_line = (
@@ -141,6 +163,29 @@ def prepare_and_deploy(
             f"clab-node-name={TARGET_TOPOLOGY_NODE}",
             "--cmd",
             exec_cmd,
+        ],
+        cwd=workdir,
+        check=True,
+    )
+
+    load_exec = f"sh -c 'sr_cli < {LOAD_CONFIG_MOUNT}'"
+    _LOG.info(
+        "Running: %s exec -t %s --label clab-node-name=%s --cmd %r",
+        cli,
+        topology_path.name,
+        TARGET_TOPOLOGY_NODE,
+        load_exec,
+    )
+    subprocess.run(
+        [
+            cli,
+            "exec",
+            "-t",
+            str(topology_path.resolve()),
+            "--label",
+            f"clab-node-name={TARGET_TOPOLOGY_NODE}",
+            "--cmd",
+            load_exec,
         ],
         cwd=workdir,
         check=True,
