@@ -191,10 +191,15 @@ def convert_cmd(
     )
     rich_print(table)
 
-    diff_cmd = (
-        "git diff --patience --color-moved=dimmed-zebra "
-        f"{shlex.quote(str(orig_cli_flat_path))} {shlex.quote(str(cli_flat_path))}"
-    )
+    def _multiline_git_diff(path1: Path, path2: Path) -> str:
+        q1 = shlex.quote(str(path1))
+        q2 = shlex.quote(str(path2))
+        return (
+            "git diff --patience --color-moved=dimmed-zebra \\\n"
+            f"{q1} \\\n"
+            f"{q2}"
+        )
+
     rich_print(
         Panel(
             "Check out README.md to understand the nuances of the diff outputs",
@@ -203,5 +208,8 @@ def convert_cmd(
         )
     )
     rich_print()
-    rich_print("[bold]Show diff between configs:[/bold]")
-    rich_print(diff_cmd)
+    rich_print("[bold]CLI-Flat config diff:[/bold]")
+    rich_print(_multiline_git_diff(orig_cli_flat_path, cli_flat_path))
+    rich_print()
+    rich_print("[bold]CLI config diff:[/bold]")
+    rich_print(_multiline_git_diff(orig_cli_path, cli_path))
