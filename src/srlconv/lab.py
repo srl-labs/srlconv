@@ -46,12 +46,25 @@ def normalize_srlinux_version(value: str) -> str:
     return v
 
 
-def _find_containerlab_cli() -> str | None:
+def find_containerlab_cli() -> str | None:
+    """Return absolute path to ``containerlab`` or ``clab`` on ``PATH``, or ``None``."""
     for name in ("containerlab", "clab"):
         path = shutil.which(name)
         if path:
             return path
     return None
+
+
+def ensure_containerlab_cli() -> str:
+    """Resolve Containerlab CLI path or raise ``RuntimeError`` if not installed."""
+    raw = find_containerlab_cli()
+    if raw is None:
+        msg = (
+            "Neither 'containerlab' nor 'clab' was found on PATH. "
+            "Install Containerlab and ensure it is available in your environment."
+        )
+        raise RuntimeError(msg)
+    return str(Path(raw).resolve())
 
 
 def _log_clab_line(line: str) -> None:
@@ -253,13 +266,7 @@ def prepare_and_deploy(
     topology_path.write_text(body, encoding="utf-8")
     topology_file = _topology_file(topology_path)
 
-    cli_raw = _find_containerlab_cli()
-    if cli_raw is None:
-        raise RuntimeError(
-            "Neither 'containerlab' nor 'clab' was found on PATH. "
-            "Install Containerlab and ensure it is available in your environment."
-        )
-    cli = str(Path(cli_raw).resolve())
+    cli = ensure_containerlab_cli()
 
     _LOG.info("Conversion workspace created at %s", workdir)
     _run_clab_deploy_streaming(

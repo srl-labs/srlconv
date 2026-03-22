@@ -254,6 +254,12 @@ def convert_cmd(
     ),
 ) -> None:
     """Template a Containerlab topology and deploy it for configuration conversion."""
+    try:
+        lab.ensure_containerlab_cli()
+    except RuntimeError as e:
+        rich_print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
     effective_target_type = target_type if target_type is not None else current_type
     cv = lab.normalize_srlinux_version(current_version)
     tv = lab.normalize_srlinux_version(target_version)
