@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import json
 import logging
 import shlex
 import subprocess
+import sys
 from importlib.metadata import PackageNotFoundError, version
 from logging import LogRecord
 from pathlib import Path
 from typing import Optional
 
 import typer
+from deepdiff import DeepDiff
 from rich import box
 from rich import print as rich_print
 from rich.console import Console, ConsoleRenderable
 from rich.logging import RichHandler
 from rich.markup import escape as rich_escape
 from rich.panel import Panel
+from rich.prompt import Prompt
+from rich.syntax import Syntax
 from rich.table import Table
 
 from srlconv import lab
@@ -50,6 +55,101 @@ def _configure_logging() -> None:
             )
         ],
     )
+
+
+def _multiline_git_diff(path1: Path, path2: Path) -> str:
+    q1 = shlex.quote(str(path1))
+    q2 = shlex.quote(str(path2))
+    return (
+        "git diff --patience --color-moved=dimmed-zebra \\\n"
+        f"{q1} \\\n"
+        f"{q2}"
+    )
+
+
+def _json_without_preamble(obj: object) -> object:
+    if isinstance(obj, dict):
+        return {k: v for k, v in obj.items() if k != "_preamble"}
+    return obj
+
+
+def _deepdiff_show_pair(
+    console: Console,
+    left: Path,
+    right: Path,
+    *,
+    as_json: bool,
+) -> None:
+    try:
+        if as_json:
+            with left.open(encoding="utf-8") as f:
+                a = _json_without_preamble(json.load(f))
+            with right.open(encoding="utf-8") as f:
+                b = _json_without_preamble(json.load(f))
+        else:
+            a = left.read_text(encoding="utf-8").splitlines()
+            b = right.read_text(encoding="utf-8").splitlines()
+    except json.JSONDecodeError as e:
+        rich_print(f"[red]Invalid JSON: {e}[/red]")
+        raise typer.Exit(1) from e
+    except OSError as e:
+        rich_print(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
+
+    diff = DeepDiff(a, b, ignore_order=True)
+    if not diff:
+        console.print(
+            "[green]No differences (ignoring list/order where applicable).[/green]"
+        )
+        return
+    console.print(
+        Syntax(
+            diff.to_json(indent=2),
+            "json",
+            theme="monokai",
+            word_wrap=True,
+        )
+    )
+
+
+def _prompt_deepdiff_after_diffs(
+    console: Console,
+    *,
+    orig_cfg_path: Path,
+    converted_path: Path,
+    orig_cli_path: Path,
+    cli_path: Path,
+    orig_cli_flat_path: Path,
+    cli_flat_path: Path,
+) -> None:
+    if not sys.stdin.isatty():
+        return
+    rich_print()
+    while True:
+        try:
+            choice = Prompt.ask(
+                "Show DeepDiff for which pair?",
+                choices=["json", "cli", "cli-flat", "skip"],
+                default="skip",
+            )
+        except KeyboardInterrupt:
+            console.print()
+            return
+        if choice == "skip":
+            return
+        if choice == "json":
+            _deepdiff_show_pair(
+                console, orig_cfg_path, converted_path, as_json=True
+            )
+        elif choice == "cli":
+            _deepdiff_show_pair(
+                console, orig_cli_path, cli_path, as_json=False
+            )
+        else:
+            _deepdiff_show_pair(
+                console, orig_cli_flat_path, cli_flat_path, as_json=False
+            )
+        rich_print()
 
 
 def _version_callback(value: bool) -> None:
@@ -191,15 +291,6 @@ def convert_cmd(
     )
     rich_print(table)
 
-    def _multiline_git_diff(path1: Path, path2: Path) -> str:
-        q1 = shlex.quote(str(path1))
-        q2 = shlex.quote(str(path2))
-        return (
-            "git diff --patience --color-moved=dimmed-zebra \\\n"
-            f"{q1} \\\n"
-            f"{q2}"
-        )
-
     rich_print(
         Panel(
             "Check out README.md to understand the nuances of the diff outputs",
@@ -213,3 +304,13 @@ def convert_cmd(
     rich_print()
     rich_print("[bold]CLI config diff:[/bold]")
     rich_print(_multiline_git_diff(orig_cli_path, cli_path))
+
+    _prompt_deepdiff_after_diffs(
+        console,
+        orig_cfg_path=orig_cfg_path,
+        converted_path=converted_path,
+        orig_cli_path=orig_cli_path,
+        cli_path=cli_path,
+        orig_cli_flat_path=orig_cli_flat_path,
+        cli_flat_path=cli_flat_path,
+    )
