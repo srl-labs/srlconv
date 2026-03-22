@@ -160,7 +160,7 @@ def convert_cmd(
         raise typer.Exit(1) from e
 
     rich_print()
-    rich_print(f"Lab workspace: {workdir}")
+    rich_print(f"Conversion workspace: {workdir}")
     table = Table(show_header=True, box=box.SIMPLE_HEAD)
     table.add_column("Description", style="bold")
     table.add_column("Path", overflow="fold")

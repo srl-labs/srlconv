@@ -7,9 +7,9 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
-from typing import Any, ContextManager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, ContextManager
 
 from jinja2 import Environment, PackageLoader
 from rich.markup import escape as _rich_escape
@@ -346,18 +346,14 @@ def prepare_and_deploy(
         )
     cli = str(Path(cli_raw).resolve())
 
-    _LOG.info("Lab workspace created at %s", workdir)
+    _LOG.info("Conversion workspace created at %s", workdir)
     _run_clab_deploy_streaming(
         cli=cli,
         topology_file=topology_file,
         workdir=workdir,
     )
 
-    ctx = (
-        nullcontext()
-        if post_deploy_context is None
-        else post_deploy_context()
-    )
+    ctx = nullcontext() if post_deploy_context is None else post_deploy_context()
     with ctx:
         save_proc = subprocess.run(
             [
@@ -392,7 +388,10 @@ def prepare_and_deploy(
         converted_dir.mkdir(parents=True, exist_ok=True)
 
         saved_json = (
-            conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
+            conversion_files
+            / f"clab-{LAB_NAME}"
+            / CURRENT_TOPOLOGY_NODE
+            / "config.json"
         )
         if not saved_json.is_file():
             msg = f"Expected saved config not found: {saved_json}"
@@ -440,9 +439,7 @@ def prepare_and_deploy(
         out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
         out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
 
-        upgrade_file_in_target = (
-            f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
-        )
+        upgrade_file_in_target = f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
         tools_line = f"tools system configuration upgrade file {upgrade_file_in_target}"
         # Same line as in an interactive SR Linux session; wrapped for non-interactive use.
         exec_cmd = f'sr_cli "{tools_line}"'
