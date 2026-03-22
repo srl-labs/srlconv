@@ -14,6 +14,7 @@ from rich import print as rich_print
 from rich.console import Console, ConsoleRenderable
 from rich.logging import RichHandler
 from rich.markup import escape as rich_escape
+from rich.panel import Panel
 from rich.table import Table
 
 from srlconv import lab
@@ -164,17 +165,42 @@ def convert_cmd(
     table = Table(show_header=True, box=box.SIMPLE_HEAD)
     table.add_column("Description", style="bold")
     table.add_column("Path", overflow="fold")
-    table.add_row(f"Current config {cv} [JSON]", str(orig_cfg_path))
-    table.add_row(f"Target config {tv} [JSON]", str(converted_path))
-    table.add_row(f"Current config {cv} [CLI]", str(orig_cli_path))
-    table.add_row(f"Target config {tv} [CLI]", str(cli_path))
-    table.add_row(f"Current config {cv} [CLI Flat]", str(orig_cli_flat_path))
-    table.add_row(f"Target config {tv} [CLI Flat]", str(cli_flat_path))
+    table.add_row(
+        rich_escape(f"[ JSON ] Current {cv}"),
+        str(orig_cfg_path),
+    )
+    table.add_row(
+        rich_escape(f"[ JSON ] Target {tv}"),
+        str(converted_path),
+    )
+    table.add_row(
+        rich_escape(f"[ CLI ] Current {cv}"),
+        str(orig_cli_path),
+    )
+    table.add_row(
+        rich_escape(f"[ CLI ] Target {tv}"),
+        str(cli_path),
+    )
+    table.add_row(
+        rich_escape(f"[ CLI Flat ] Current {cv}"),
+        str(orig_cli_flat_path),
+    )
+    table.add_row(
+        rich_escape(f"[ CLI Flat ] Target {tv}"),
+        str(cli_flat_path),
+    )
     rich_print(table)
 
     diff_cmd = (
         "git diff --patience --color-moved=dimmed-zebra "
         f"{shlex.quote(str(orig_cli_flat_path))} {shlex.quote(str(cli_flat_path))}"
+    )
+    rich_print(
+        Panel(
+            "Check out README.md to understand the nuances of the diff outputs",
+            border_style="dim",
+            expand=False,
+        )
     )
     rich_print()
     rich_print("[bold]Show diff between configs:[/bold]")
