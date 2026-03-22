@@ -4,16 +4,29 @@ import logging
 import shlex
 import subprocess
 from importlib.metadata import PackageNotFoundError, version
+from logging import LogRecord
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich import box
 from rich import print as rich_print
+from rich.console import Console, ConsoleRenderable
 from rich.logging import RichHandler
+from rich.markup import escape as rich_escape
 from rich.table import Table
 
 from srlconv import lab
+
+
+class SrlconvRichHandler(RichHandler):
+    """RichHandler that allows lab subprocess lines to supply a pre-built renderable (ANSI or markup)."""
+
+    def render_message(self, record: LogRecord, message: str) -> ConsoleRenderable:
+        rich_msg = getattr(record, "srlconv_rich", None)
+        if rich_msg is not None:
+            return rich_msg
+        return super().render_message(record, message)
 
 
 def _get_version() -> str:
@@ -28,7 +41,13 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
+        handlers=[
+            SrlconvRichHandler(
+                rich_tracebacks=True,
+                show_path=False,
+                markup=True,
+            )
+        ],
     )
 
 
@@ -104,6 +123,7 @@ def convert_cmd(
     effective_target_type = target_type if target_type is not None else current_type
     cv = lab.normalize_srlinux_version(current_version)
     tv = lab.normalize_srlinux_version(target_version)
+    console = Console()
     try:
         (
             workdir,
@@ -119,12 +139,21 @@ def convert_cmd(
             current_type=current_type,
             target_version=target_version,
             target_type=effective_target_type,
+            post_deploy_context=lambda: console.status(
+                "collecting configuration files, please wait",
+                spinner="dots",
+            ),
         )
     except FileNotFoundError as e:
         rich_print(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
     except subprocess.CalledProcessError as e:
         rich_print(f"[red]Containerlab exited with status {e.returncode}[/red]")
+        err_text = (e.stderr or "").strip()
+        out_text = (e.stdout or "").strip()
+        detail = "\n".join(x for x in (err_text, out_text) if x)
+        if detail:
+            rich_print(f"[red]{rich_escape(detail)}[/red]")
         raise typer.Exit(e.returncode or 1) from e
     except RuntimeError as e:
         rich_print(f"[red]{e}[/red]")

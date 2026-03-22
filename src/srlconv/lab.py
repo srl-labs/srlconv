@@ -5,12 +5,19 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
+from contextlib import nullcontext
+from typing import Any, ContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
 from jinja2 import Environment, PackageLoader
+from rich.markup import escape as _rich_escape
+from rich.text import Text
 
 _LOG = logging.getLogger(__name__)
+
+_CLAB_LOG_PREFIX = "[dim]containerlab[/dim] │ "
 
 # Must match ``lab_name`` in srlconv.clab.yaml.j2 (used in paths under conversion_files).
 LAB_NAME = "conversion"
@@ -58,6 +65,49 @@ def _find_containerlab_cli() -> str | None:
         if path:
             return path
     return None
+
+
+def _log_clab_line(line: str) -> None:
+    text = line.rstrip("\n\r")
+    if not text:
+        return
+    prefix = Text.from_markup(_CLAB_LOG_PREFIX)
+    if "\x1b" in text:
+        body = Text.from_ansi(text)
+    else:
+        body = Text.from_markup(_rich_escape(text))
+    _LOG.info("", extra={"srlconv_rich": prefix + body})
+
+
+def _log_clab_captured(stdout: str | None, stderr: str | None) -> None:
+    for block in (stdout or "", stderr or ""):
+        for line in block.splitlines():
+            _log_clab_line(line)
+
+
+def _run_clab_deploy_streaming(*, cli: str, topology_file: str, workdir: Path) -> None:
+    cmd = [cli, "deploy", "-t", topology_file]
+    captured: list[str] = []
+    with subprocess.Popen(
+        cmd,
+        cwd=workdir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            captured.append(line)
+            _log_clab_line(line)
+        proc.wait()
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            cmd,
+            output="".join(captured),
+            stderr=None,
+        )
 
 
 def _stdout_from_clab_exec_json(collection_json: str) -> str:
@@ -206,7 +256,7 @@ def _clab_exec_target(
     workdir: Path,
     cmd: str,
 ) -> None:
-    subprocess.run(
+    proc = subprocess.run(
         [
             cli,
             "exec",
@@ -220,8 +270,18 @@ def _clab_exec_target(
             cmd,
         ],
         cwd=workdir,
-        check=True,
+        capture_output=True,
+        text=True,
+        check=False,
     )
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            proc.args,
+            output=proc.stdout,
+            stderr=proc.stderr,
+        )
+    _log_clab_captured(proc.stdout, proc.stderr)
 
 
 def prepare_and_deploy(
@@ -231,6 +291,7 @@ def prepare_and_deploy(
     current_type: str,
     target_version: str,
     target_type: str,
+    post_deploy_context: Callable[[], ContextManager[Any]] | None = None,
 ) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
     """Deploy lab; store original + converted JSON, monolithic CLI dumps, and per-top-level-YANG CLI files."""
     config_path = current_config.resolve()
@@ -285,152 +346,168 @@ def prepare_and_deploy(
         )
     cli = str(Path(cli_raw).resolve())
 
-    subprocess.run(
-        [cli, "deploy", "-t", topology_file],
-        cwd=workdir,
-        check=True,
-    )
-
-    subprocess.run(
-        [
-            cli,
-            "save",
-            "--copy",
-            str(conversion_files.resolve()),
-            "--node-filter",
-            CURRENT_TOPOLOGY_NODE,
-            "-t",
-            topology_file,
-        ],
-        cwd=workdir,
-        check=True,
-    )
-
-    subprocess.run(
-        ["chmod", "-R", "777", str(conversion_files.resolve())],
-        check=True,
-    )
-
-    converted_dir = workdir / "converted"
-    converted_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_json = (
-        conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
-    )
-    if not saved_json.is_file():
-        msg = f"Expected saved config not found: {saved_json}"
-        raise FileNotFoundError(msg)
-    out_current_cfg = converted_dir / f"{cv}.cfg.json"
-    shutil.copy2(saved_json, out_current_cfg)
-
-    yang_structure: dict[str, YangTopLevelStructure] = {}
-
-    detail_current_raw = _clab_exec_node_capture_json(
+    _LOG.info("Lab workspace created at %s", workdir)
+    _run_clab_deploy_streaming(
         cli=cli,
         topology_file=topology_file,
         workdir=workdir,
-        node_name=CURRENT_TOPOLOGY_NODE,
-        cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
-    )
-    yang_structure["current"] = _parse_top_level_yang_structure(detail_current_raw)
-    _export_per_yang_cli_files(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=CURRENT_TOPOLOGY_NODE,
-        yang=yang_structure["current"],
-        converted_dir=converted_dir,
-        version_label=cv,
     )
 
-    cur_cli_txt = _clab_exec_node_capture_json(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=CURRENT_TOPOLOGY_NODE,
-        cmd=_SR_CLI_INFO_CANDIDATE,
+    ctx = (
+        nullcontext()
+        if post_deploy_context is None
+        else post_deploy_context()
     )
-    out_current_cli = converted_dir / f"{cv}.cli.txt"
-    out_current_cli.write_text(cur_cli_txt, encoding="utf-8")
+    with ctx:
+        save_proc = subprocess.run(
+            [
+                cli,
+                "save",
+                "--copy",
+                str(conversion_files.resolve()),
+                "--node-filter",
+                CURRENT_TOPOLOGY_NODE,
+                "-t",
+                topology_file,
+            ],
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if save_proc.returncode != 0:
+            raise subprocess.CalledProcessError(
+                save_proc.returncode,
+                save_proc.args,
+                output=save_proc.stdout,
+                stderr=save_proc.stderr,
+            )
 
-    cur_cli_flat_txt = _clab_exec_node_capture_json(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=CURRENT_TOPOLOGY_NODE,
-        cmd=_SR_CLI_INFO_FLAT,
-    )
-    out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
-    out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
+        subprocess.run(
+            ["chmod", "-R", "777", str(conversion_files.resolve())],
+            check=True,
+        )
 
-    upgrade_file_in_target = (
-        f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
-    )
-    tools_line = f"tools system configuration upgrade file {upgrade_file_in_target}"
-    # Same line as in an interactive SR Linux session; wrapped for non-interactive use.
-    exec_cmd = f'sr_cli "{tools_line}"'
-    _clab_exec_target(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        cmd=exec_cmd,
-    )
+        converted_dir = workdir / "converted"
+        converted_dir.mkdir(parents=True, exist_ok=True)
 
-    load_exec = f"sh -c 'sr_cli < {LOAD_CONFIG_MOUNT}'"
-    _clab_exec_target(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        cmd=load_exec,
-    )
+        saved_json = (
+            conversion_files / f"clab-{LAB_NAME}" / CURRENT_TOPOLOGY_NODE / "config.json"
+        )
+        if not saved_json.is_file():
+            msg = f"Expected saved config not found: {saved_json}"
+            raise FileNotFoundError(msg)
+        out_current_cfg = converted_dir / f"{cv}.cfg.json"
+        shutil.copy2(saved_json, out_current_cfg)
 
-    out_target_cfg = converted_dir / f"{tv}.cfg.json"
-    shutil.copy2(saved_json, out_target_cfg)
+        yang_structure: dict[str, YangTopLevelStructure] = {}
 
-    detail_target_raw = _clab_exec_node_capture_json(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=TARGET_TOPOLOGY_NODE,
-        cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
-    )
-    yang_structure["target"] = _parse_top_level_yang_structure(detail_target_raw)
-    _export_per_yang_cli_files(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=TARGET_TOPOLOGY_NODE,
-        yang=yang_structure["target"],
-        converted_dir=converted_dir,
-        version_label=tv,
-    )
+        detail_current_raw = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=CURRENT_TOPOLOGY_NODE,
+            cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
+        )
+        yang_structure["current"] = _parse_top_level_yang_structure(detail_current_raw)
+        _export_per_yang_cli_files(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=CURRENT_TOPOLOGY_NODE,
+            yang=yang_structure["current"],
+            converted_dir=converted_dir,
+            version_label=cv,
+        )
 
-    tgt_cli_txt = _clab_exec_node_capture_json(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=TARGET_TOPOLOGY_NODE,
-        cmd=_SR_CLI_INFO_CANDIDATE,
-    )
-    out_target_cli = converted_dir / f"{tv}.cli.txt"
-    out_target_cli.write_text(tgt_cli_txt, encoding="utf-8")
+        cur_cli_txt = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=CURRENT_TOPOLOGY_NODE,
+            cmd=_SR_CLI_INFO_CANDIDATE,
+        )
+        out_current_cli = converted_dir / f"{cv}.cli.txt"
+        out_current_cli.write_text(cur_cli_txt, encoding="utf-8")
 
-    tgt_cli_flat_txt = _clab_exec_node_capture_json(
-        cli=cli,
-        topology_file=topology_file,
-        workdir=workdir,
-        node_name=TARGET_TOPOLOGY_NODE,
-        cmd=_SR_CLI_INFO_FLAT,
-    )
-    out_target_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
-    out_target_cli_flat.write_text(tgt_cli_flat_txt, encoding="utf-8")
+        cur_cli_flat_txt = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=CURRENT_TOPOLOGY_NODE,
+            cmd=_SR_CLI_INFO_FLAT,
+        )
+        out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
+        out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
 
-    return (
-        workdir,
-        out_current_cfg,
-        out_current_cli,
-        out_current_cli_flat,
-        out_target_cfg,
-        out_target_cli,
-        out_target_cli_flat,
-    )
+        upgrade_file_in_target = (
+            f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
+        )
+        tools_line = f"tools system configuration upgrade file {upgrade_file_in_target}"
+        # Same line as in an interactive SR Linux session; wrapped for non-interactive use.
+        exec_cmd = f'sr_cli "{tools_line}"'
+        _clab_exec_target(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            cmd=exec_cmd,
+        )
+
+        load_exec = f"sh -c 'sr_cli < {LOAD_CONFIG_MOUNT}'"
+        _clab_exec_target(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            cmd=load_exec,
+        )
+
+        out_target_cfg = converted_dir / f"{tv}.cfg.json"
+        shutil.copy2(saved_json, out_target_cfg)
+
+        detail_target_raw = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=TARGET_TOPOLOGY_NODE,
+            cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
+        )
+        yang_structure["target"] = _parse_top_level_yang_structure(detail_target_raw)
+        _export_per_yang_cli_files(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=TARGET_TOPOLOGY_NODE,
+            yang=yang_structure["target"],
+            converted_dir=converted_dir,
+            version_label=tv,
+        )
+
+        tgt_cli_txt = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=TARGET_TOPOLOGY_NODE,
+            cmd=_SR_CLI_INFO_CANDIDATE,
+        )
+        out_target_cli = converted_dir / f"{tv}.cli.txt"
+        out_target_cli.write_text(tgt_cli_txt, encoding="utf-8")
+
+        tgt_cli_flat_txt = _clab_exec_node_capture_json(
+            cli=cli,
+            topology_file=topology_file,
+            workdir=workdir,
+            node_name=TARGET_TOPOLOGY_NODE,
+            cmd=_SR_CLI_INFO_FLAT,
+        )
+        out_target_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
+        out_target_cli_flat.write_text(tgt_cli_flat_txt, encoding="utf-8")
+
+        return (
+            workdir,
+            out_current_cfg,
+            out_current_cli,
+            out_current_cli_flat,
+            out_target_cfg,
+            out_target_cli,
+            out_target_cli_flat,
+        )
