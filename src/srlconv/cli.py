@@ -255,6 +255,11 @@ def convert_cmd(
         "--target-type",
         help="SR Linux device type for the target node (defaults to --current-type).",
     ),
+    show_git_diff_commands: bool = typer.Option(
+        False,
+        "--show-git-diff-commands",
+        help="Print suggested git diff commands for CLI and CLI-flat configs.",
+    ),
 ) -> None:
     """Template a Containerlab topology and deploy it for configuration conversion."""
     effective_target_type = target_type if target_type is not None else current_type
@@ -334,12 +339,13 @@ def convert_cmd(
             expand=False,
         )
     )
-    rich_print()
-    rich_print("[bold]CLI-Flat config diff:[/bold]")
-    rich_print(_multiline_git_diff(orig_cli_flat_path, cli_flat_path))
-    rich_print()
-    rich_print("[bold]CLI config diff:[/bold]")
-    rich_print(_multiline_git_diff(orig_cli_path, cli_path))
+    if show_git_diff_commands:
+        rich_print()
+        rich_print("[bold]CLI-Flat config diff:[/bold]")
+        rich_print(_multiline_git_diff(orig_cli_flat_path, cli_flat_path))
+        rich_print()
+        rich_print("[bold]CLI config diff:[/bold]")
+        rich_print(_multiline_git_diff(orig_cli_path, cli_path))
 
     _prompt_deepdiff_after_diffs(
         console,
