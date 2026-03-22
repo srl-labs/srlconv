@@ -7,7 +7,6 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ContextManager
 
@@ -35,18 +34,6 @@ LOAD_CONFIG_HOST_RELPATH = "load_config"
 # ``clab exec -f json`` wraps results; ``stdout`` holds sr_cli output (string or embedded JSON).
 _SR_CLI_INFO_CANDIDATE = "sr_cli -e -d -- info /"
 _SR_CLI_INFO_FLAT = "sr_cli -e -d -- info flat /"
-# Command to list YANG containers and lists
-_SR_CLI_CONTAINER_LIST_DISCOVER_CMD = (
-    'sr_cli -e -d -- "info detail depth 1 / | as json"'
-)
-
-
-@dataclass
-class YangTopLevelStructure:
-    """Top-level YANG container vs list keys from ``info detail depth 1 / | as json``."""
-
-    containers: list[str]
-    lists: list[str]
 
 
 def normalize_srlinux_version(value: str) -> str:
@@ -177,78 +164,6 @@ def _topology_file(topology_path: Path) -> str:
     return str(topology_path.expanduser().resolve())
 
 
-def _parse_top_level_yang_structure(detail_json_text: str) -> YangTopLevelStructure:
-    """Split top-level keys into YANG containers (object) vs lists (array); skip scalars and ``_*`` keys."""
-    text = detail_json_text.strip()
-    if not text:
-        msg = "Empty stdout from info detail depth 1 / | as json"
-        raise RuntimeError(msg)
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as e:
-        msg = f"Discovery output is not valid JSON: {e}"
-        raise RuntimeError(msg) from e
-    if not isinstance(obj, dict):
-        msg = f"Expected JSON object from discovery, got {type(obj).__name__}"
-        raise RuntimeError(msg)
-
-    containers: list[str] = []
-    lists: list[str] = []
-    for key, val in obj.items():
-        if key.startswith("_"):
-            continue
-        if isinstance(val, dict):
-            containers.append(key)
-        elif isinstance(val, list):
-            lists.append(key)
-    containers.sort()
-    lists.sort()
-    return YangTopLevelStructure(containers=containers, lists=lists)
-
-
-def _safe_yang_filename_segment(name: str) -> str:
-    return name.replace("/", "_").replace("\\", "_")
-
-
-def _export_per_yang_cli_files(
-    *,
-    cli: str,
-    topology_file: str,
-    workdir: Path,
-    node_name: str,
-    yang: YangTopLevelStructure,
-    converted_dir: Path,
-    version_label: str,
-) -> None:
-    """Write ``<name>_<ver>.cli.txt`` / ``.cli-flat.txt`` per top-level container or list."""
-    jobs: list[tuple[str, bool]] = [(n, False) for n in yang.containers] + [
-        (n, True) for n in yang.lists
-    ]
-    for name, is_list in jobs:
-        safe = _safe_yang_filename_segment(name)
-        wild = " *" if is_list else ""
-        info_cmd = f"sr_cli -e -d -- info / {name}{wild}"
-        flat_cmd = f"sr_cli -e -d -- info flat / {name}{wild}"
-        cli_body = _clab_exec_node_capture_json(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=node_name,
-            cmd=info_cmd,
-        )
-        flat_body = _clab_exec_node_capture_json(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=node_name,
-            cmd=flat_cmd,
-        )
-        out_cli = converted_dir / f"{safe}_{version_label}.cli.txt"
-        out_flat = converted_dir / f"{safe}_{version_label}.cli-flat.txt"
-        out_cli.write_text(cli_body, encoding="utf-8")
-        out_flat.write_text(flat_body, encoding="utf-8")
-
-
 def _clab_exec_target(
     *,
     cli: str,
@@ -293,7 +208,7 @@ def prepare_and_deploy(
     target_type: str,
     post_deploy_context: Callable[[], ContextManager[Any]] | None = None,
 ) -> tuple[Path, Path, Path, Path, Path, Path, Path]:
-    """Deploy lab; store original + converted JSON, monolithic CLI dumps, and per-top-level-YANG CLI files."""
+    """Deploy lab; store original + converted JSON and monolithic CLI dumps."""
     config_path = current_config.resolve()
     if not config_path.is_file():
         msg = f"Configuration file not found: {config_path}"
@@ -399,26 +314,6 @@ def prepare_and_deploy(
         out_current_cfg = converted_dir / f"{cv}.cfg.json"
         shutil.copy2(saved_json, out_current_cfg)
 
-        yang_structure: dict[str, YangTopLevelStructure] = {}
-
-        detail_current_raw = _clab_exec_node_capture_json(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=CURRENT_TOPOLOGY_NODE,
-            cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
-        )
-        yang_structure["current"] = _parse_top_level_yang_structure(detail_current_raw)
-        _export_per_yang_cli_files(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=CURRENT_TOPOLOGY_NODE,
-            yang=yang_structure["current"],
-            converted_dir=converted_dir,
-            version_label=cv,
-        )
-
         cur_cli_txt = _clab_exec_node_capture_json(
             cli=cli,
             topology_file=topology_file,
@@ -460,24 +355,6 @@ def prepare_and_deploy(
 
         out_target_cfg = converted_dir / f"{tv}.cfg.json"
         shutil.copy2(saved_json, out_target_cfg)
-
-        detail_target_raw = _clab_exec_node_capture_json(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=TARGET_TOPOLOGY_NODE,
-            cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
-        )
-        yang_structure["target"] = _parse_top_level_yang_structure(detail_target_raw)
-        _export_per_yang_cli_files(
-            cli=cli,
-            topology_file=topology_file,
-            workdir=workdir,
-            node_name=TARGET_TOPOLOGY_NODE,
-            yang=yang_structure["target"],
-            converted_dir=converted_dir,
-            version_label=tv,
-        )
 
         tgt_cli_txt = _clab_exec_node_capture_json(
             cli=cli,
