@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shlex
 import subprocess
 import sys
@@ -57,6 +58,34 @@ def _configure_logging() -> None:
     )
 
 
+def _syntax_theme_for_deepdiff() -> str:
+    """Pick Rich Syntax theme for the host terminal.
+
+    Rich cannot query the real background color portably. We use built-in
+    ``ansi_light`` / ``ansi_dark`` (terminal-native 16-color pairs), plus:
+
+    - ``SRLCONV_SYNTAX_THEME=ansi_light|ansi_dark|monokai`` to force a style.
+    - If unset, ``COLORFGBG`` (``fg;bg``, 0--15) when present: background
+      ``>= 8`` is treated as a light screen → ``ansi_light``, else ``ansi_dark``.
+    - Otherwise ``ansi_dark`` (closest to the previous fixed ``monokai`` look).
+    """
+    override = os.environ.get("SRLCONV_SYNTAX_THEME", "").strip().lower()
+    if override in ("ansi_light", "light"):
+        return "ansi_light"
+    if override in ("ansi_dark", "dark"):
+        return "ansi_dark"
+    if override == "monokai":
+        return "monokai"
+    fgbg = os.environ.get("COLORFGBG", "")
+    parts = fgbg.split(";")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        bg = int(parts[1])
+        if bg >= 8:
+            return "ansi_light"
+        return "ansi_dark"
+    return "ansi_dark"
+
+
 def _multiline_git_diff(path1: Path, path2: Path) -> str:
     q1 = shlex.quote(str(path1))
     q2 = shlex.quote(str(path2))
@@ -106,7 +135,7 @@ def _deepdiff_show_pair(
         Syntax(
             diff.to_json(indent=2),
             "json",
-            theme="monokai",
+            theme=_syntax_theme_for_deepdiff(),
             word_wrap=True,
         )
     )
@@ -126,22 +155,29 @@ def _prompt_deepdiff_after_diffs(
         return
     rich_print()
     while True:
+        rich_print(
+            "[bold]DeepDiff[/bold]\n"
+            "  1. json config\n"
+            "  2. cli config\n"
+            "  3. cli flat config\n"
+            "  0. exit program"
+        )
         try:
             choice = Prompt.ask(
-                "Show DeepDiff for which pair?",
-                choices=["json", "cli", "cli-flat", "skip"],
-                default="skip",
+                "Select option",
+                choices=["0", "1", "2", "3"],
+                default="0",
             )
         except KeyboardInterrupt:
             console.print()
             return
-        if choice == "skip":
+        if choice == "0":
             return
-        if choice == "json":
+        if choice == "1":
             _deepdiff_show_pair(
                 console, orig_cfg_path, converted_path, as_json=True
             )
-        elif choice == "cli":
+        elif choice == "2":
             _deepdiff_show_pair(
                 console, orig_cli_path, cli_path, as_json=False
             )
