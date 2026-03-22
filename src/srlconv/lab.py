@@ -92,17 +92,12 @@ def _clab_exec_node_capture_json(
     cmd: str,
 ) -> str:
     """Run ``clab exec -f json`` on a node and return decoded command stdout (not the wrapper tree)."""
-    _LOG.info(
-        "Running: %s exec -f json -t %s --label clab-node-name=%s --cmd %r",
-        cli,
-        topology_file,
-        node_name,
-        cmd,
-    )
     proc = subprocess.run(
         [
             cli,
             "exec",
+            "--log-level",
+            "error",
             "-t",
             topology_file,
             "-f",
@@ -202,8 +197,6 @@ def _export_per_yang_cli_files(
         out_flat = converted_dir / f"{safe}_{version_label}.cli-flat.txt"
         out_cli.write_text(cli_body, encoding="utf-8")
         out_flat.write_text(flat_body, encoding="utf-8")
-        kind = "list" if is_list else "container"
-        _LOG.info("Wrote %s (%s) subtree CLI: %s", name, kind, out_cli)
 
 
 def _clab_exec_target(
@@ -213,17 +206,12 @@ def _clab_exec_target(
     workdir: Path,
     cmd: str,
 ) -> None:
-    _LOG.info(
-        "Running: %s exec -t %s --label clab-node-name=%s --cmd %r",
-        cli,
-        topology_file,
-        TARGET_TOPOLOGY_NODE,
-        cmd,
-    )
     subprocess.run(
         [
             cli,
             "exec",
+            "--log-level",
+            "error",
             "-t",
             topology_file,
             "--label",
@@ -297,21 +285,12 @@ def prepare_and_deploy(
         )
     cli = str(Path(cli_raw).resolve())
 
-    _LOG.info("Using lab directory: %s", workdir)
-    _LOG.info("Running: %s deploy -t %s (cwd=%s)", cli, topology_file, workdir)
     subprocess.run(
         [cli, "deploy", "-t", topology_file],
         cwd=workdir,
         check=True,
     )
 
-    _LOG.info(
-        "Running: %s save --copy %s --node-filter %s -t %s",
-        cli,
-        conversion_files,
-        CURRENT_TOPOLOGY_NODE,
-        topology_file,
-    )
     subprocess.run(
         [
             cli,
@@ -327,7 +306,6 @@ def prepare_and_deploy(
         check=True,
     )
 
-    _LOG.info("Running: chmod -R 777 %s", conversion_files)
     subprocess.run(
         ["chmod", "-R", "777", str(conversion_files.resolve())],
         check=True,
@@ -344,7 +322,6 @@ def prepare_and_deploy(
         raise FileNotFoundError(msg)
     out_current_cfg = converted_dir / f"{cv}.cfg.json"
     shutil.copy2(saved_json, out_current_cfg)
-    _LOG.info("Wrote original JSON: %s", out_current_cfg)
 
     yang_structure: dict[str, YangTopLevelStructure] = {}
 
@@ -356,13 +333,6 @@ def prepare_and_deploy(
         cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
     )
     yang_structure["current"] = _parse_top_level_yang_structure(detail_current_raw)
-    _LOG.info(
-        "YANG top-level (current): %d containers %s, %d lists %s",
-        len(yang_structure["current"].containers),
-        yang_structure["current"].containers,
-        len(yang_structure["current"].lists),
-        yang_structure["current"].lists,
-    )
     _export_per_yang_cli_files(
         cli=cli,
         topology_file=topology_file,
@@ -382,7 +352,6 @@ def prepare_and_deploy(
     )
     out_current_cli = converted_dir / f"{cv}.cli.txt"
     out_current_cli.write_text(cur_cli_txt, encoding="utf-8")
-    _LOG.info("Wrote original CLI config: %s", out_current_cli)
 
     cur_cli_flat_txt = _clab_exec_node_capture_json(
         cli=cli,
@@ -393,7 +362,6 @@ def prepare_and_deploy(
     )
     out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
     out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
-    _LOG.info("Wrote original CLI-Flat config: %s", out_current_cli_flat)
 
     upgrade_file_in_target = (
         f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
@@ -418,7 +386,6 @@ def prepare_and_deploy(
 
     out_target_cfg = converted_dir / f"{tv}.cfg.json"
     shutil.copy2(saved_json, out_target_cfg)
-    _LOG.info("Wrote converted configuration: %s", out_target_cfg)
 
     detail_target_raw = _clab_exec_node_capture_json(
         cli=cli,
@@ -428,13 +395,6 @@ def prepare_and_deploy(
         cmd=_SR_CLI_CONTAINER_LIST_DISCOVER_CMD,
     )
     yang_structure["target"] = _parse_top_level_yang_structure(detail_target_raw)
-    _LOG.info(
-        "YANG top-level (target): %d containers %s, %d lists %s",
-        len(yang_structure["target"].containers),
-        yang_structure["target"].containers,
-        len(yang_structure["target"].lists),
-        yang_structure["target"].lists,
-    )
     _export_per_yang_cli_files(
         cli=cli,
         topology_file=topology_file,
@@ -454,7 +414,6 @@ def prepare_and_deploy(
     )
     out_target_cli = converted_dir / f"{tv}.cli.txt"
     out_target_cli.write_text(tgt_cli_txt, encoding="utf-8")
-    _LOG.info("Wrote converted CLI config: %s", out_target_cli)
 
     tgt_cli_flat_txt = _clab_exec_node_capture_json(
         cli=cli,
@@ -465,7 +424,6 @@ def prepare_and_deploy(
     )
     out_target_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
     out_target_cli_flat.write_text(tgt_cli_flat_txt, encoding="utf-8")
-    _LOG.info("Wrote converted CLI-Flat config: %s", out_target_cli_flat)
 
     return (
         workdir,

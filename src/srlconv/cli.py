@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import subprocess
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Optional
 
 import typer
+from rich import box
 from rich import print as rich_print
 from rich.logging import RichHandler
+from rich.table import Table
 
 from srlconv import lab
 
@@ -98,8 +101,9 @@ def convert_cmd(
     ),
 ) -> None:
     """Template a Containerlab topology and deploy it for configuration conversion."""
-    log = logging.getLogger("srlconv")
     effective_target_type = target_type if target_type is not None else current_type
+    cv = lab.normalize_srlinux_version(current_version)
+    tv = lab.normalize_srlinux_version(target_version)
     try:
         (
             workdir,
@@ -125,11 +129,24 @@ def convert_cmd(
     except RuntimeError as e:
         rich_print(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
-    log.info("Topology deployed; lab files kept under %s", workdir)
+
+    rich_print()
     rich_print(f"Lab workspace: {workdir}")
-    rich_print(f"Original config (JSON): {orig_cfg_path}")
-    rich_print(f"Original CLI: {orig_cli_path}")
-    rich_print(f"Original CLI-Flat: {orig_cli_flat_path}")
-    rich_print(f"Converted config (JSON): {converted_path}")
-    rich_print(f"Converted CLI: {cli_path}")
-    rich_print(f"Converted CLI-Flat: {cli_flat_path}")
+    table = Table(show_header=True, box=box.SIMPLE_HEAD)
+    table.add_column("Description", style="bold")
+    table.add_column("Path", overflow="fold")
+    table.add_row(f"Current config {cv} [JSON]", str(orig_cfg_path))
+    table.add_row(f"Target config {tv} [JSON]", str(converted_path))
+    table.add_row(f"Current config {cv} [CLI]", str(orig_cli_path))
+    table.add_row(f"Target config {tv} [CLI]", str(cli_path))
+    table.add_row(f"Current config {cv} [CLI Flat]", str(orig_cli_flat_path))
+    table.add_row(f"Target config {tv} [CLI Flat]", str(cli_flat_path))
+    rich_print(table)
+
+    diff_cmd = (
+        "git diff --patience --color-moved=dimmed-zebra "
+        f"{shlex.quote(str(orig_cli_flat_path))} {shlex.quote(str(cli_flat_path))}"
+    )
+    rich_print()
+    rich_print("[bold]Show diff between configs:[/bold]")
+    rich_print(diff_cmd)
