@@ -119,10 +119,9 @@ The tool will create a temporary workspace directory and deploy the lab, run con
 
 | File pattern                                       | Meaning                                                                                |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `{current}.cfg.json`                               | Current config in JSON format |
-| `{target}.cfg.json`                                | Target config in JSON format after upgrade                                  |
-| `{current}.cli.txt` / `{target}.cli.txt`           | Current config in CLI format.                                                         |
-| `{current}.cli-flat.txt` / `{target}.cli-flat.txt` | Current config in CLI-flat format.                                                    |
+| `{version}.cfg.json`                               | Current/Target config in JSON format |
+| `{version}.cli.txt`           | Current/Target config in CLI format.                                                         |
+| `{version}.cli-flat.txt` | Current/Target config in CLI-flat format.                                                    |
 
 ## Examples
 
