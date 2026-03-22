@@ -299,8 +299,8 @@ def prepare_and_deploy(
             check=True,
         )
 
-        converted_dir = workdir / "converted"
-        converted_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = workdir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         saved_json = (
             conversion_files
@@ -311,7 +311,7 @@ def prepare_and_deploy(
         if not saved_json.is_file():
             msg = f"Expected saved config not found: {saved_json}"
             raise FileNotFoundError(msg)
-        out_current_cfg = converted_dir / f"{cv}.cfg.json"
+        out_current_cfg = output_dir / f"{cv}.cfg.json"
         shutil.copy2(saved_json, out_current_cfg)
 
         cur_cli_txt = _clab_exec_node_capture_json(
@@ -321,7 +321,7 @@ def prepare_and_deploy(
             node_name=CURRENT_TOPOLOGY_NODE,
             cmd=_SR_CLI_INFO_CANDIDATE,
         )
-        out_current_cli = converted_dir / f"{cv}.cli.txt"
+        out_current_cli = output_dir / f"{cv}.cli.txt"
         out_current_cli.write_text(cur_cli_txt, encoding="utf-8")
 
         cur_cli_flat_txt = _clab_exec_node_capture_json(
@@ -331,7 +331,7 @@ def prepare_and_deploy(
             node_name=CURRENT_TOPOLOGY_NODE,
             cmd=_SR_CLI_INFO_FLAT,
         )
-        out_current_cli_flat = converted_dir / f"{cv}.cli-flat.txt"
+        out_current_cli_flat = output_dir / f"{cv}.cli-flat.txt"
         out_current_cli_flat.write_text(cur_cli_flat_txt, encoding="utf-8")
 
         upgrade_file_in_target = f"{CONVERSION_FILES_MOUNT}/clab-{LAB_NAME}/{CURRENT_TOPOLOGY_NODE}/config.json"
@@ -353,7 +353,7 @@ def prepare_and_deploy(
             cmd=load_exec,
         )
 
-        out_target_cfg = converted_dir / f"{tv}.cfg.json"
+        out_target_cfg = output_dir / f"{tv}.cfg.json"
         shutil.copy2(saved_json, out_target_cfg)
 
         tgt_cli_txt = _clab_exec_node_capture_json(
@@ -363,7 +363,7 @@ def prepare_and_deploy(
             node_name=TARGET_TOPOLOGY_NODE,
             cmd=_SR_CLI_INFO_CANDIDATE,
         )
-        out_target_cli = converted_dir / f"{tv}.cli.txt"
+        out_target_cli = output_dir / f"{tv}.cli.txt"
         out_target_cli.write_text(tgt_cli_txt, encoding="utf-8")
 
         tgt_cli_flat_txt = _clab_exec_node_capture_json(
@@ -373,7 +373,7 @@ def prepare_and_deploy(
             node_name=TARGET_TOPOLOGY_NODE,
             cmd=_SR_CLI_INFO_FLAT,
         )
-        out_target_cli_flat = converted_dir / f"{tv}.cli-flat.txt"
+        out_target_cli_flat = output_dir / f"{tv}.cli-flat.txt"
         out_target_cli_flat.write_text(tgt_cli_flat_txt, encoding="utf-8")
 
         return (
