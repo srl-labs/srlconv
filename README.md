@@ -10,6 +10,8 @@ The SR Linux Network OS handles the translation between the old an new configura
 - Convert your current configuration between versions and storing the new config in json, cli and cli-flat formats.
 - Computing the diff between the current and new configuration in json, cli and cli-flat formats.
 
+https://github.com/user-attachments/assets/db829387-8c42-41f7-9a0d-67129cbc2529
+
 ## Prerequisites
 
 - `curl` to download and execute the installation script.
