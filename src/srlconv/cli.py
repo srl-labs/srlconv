@@ -89,11 +89,7 @@ def _syntax_theme_for_deepdiff() -> str:
 def _multiline_git_diff(path1: Path, path2: Path) -> str:
     q1 = shlex.quote(str(path1))
     q2 = shlex.quote(str(path2))
-    return (
-        "git diff --patience --color-moved=dimmed-zebra \\\n"
-        f"{q1} \\\n"
-        f"{q2}"
-    )
+    return f"git diff --patience --color-moved=dimmed-zebra \\\n{q1} \\\n{q2}"
 
 
 def _json_without_preamble(obj: object) -> object:
@@ -156,7 +152,7 @@ def _prompt_deepdiff_after_diffs(
     rich_print()
     while True:
         rich_print(
-            "[bold]DeepDiff[/bold]\n"
+            "[bold]Show config diff in this format:[/bold]\n"
             "  1. json config\n"
             "  2. cli config\n"
             "  3. cli flat config\n"
@@ -174,13 +170,9 @@ def _prompt_deepdiff_after_diffs(
         if choice == "0":
             return
         if choice == "1":
-            _deepdiff_show_pair(
-                console, orig_cfg_path, converted_path, as_json=True
-            )
+            _deepdiff_show_pair(console, orig_cfg_path, converted_path, as_json=True)
         elif choice == "2":
-            _deepdiff_show_pair(
-                console, orig_cli_path, cli_path, as_json=False
-            )
+            _deepdiff_show_pair(console, orig_cli_path, cli_path, as_json=False)
         else:
             _deepdiff_show_pair(
                 console, orig_cli_flat_path, cli_flat_path, as_json=False
