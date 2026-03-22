@@ -17,7 +17,7 @@ from rich.text import Text
 
 _LOG = logging.getLogger(__name__)
 
-_CLAB_LOG_PREFIX = "[dim]containerlab[/dim] │ "
+_CLAB_LOG_PREFIX = "[dim]clab[/dim] │ "
 
 # Must match ``lab_name`` in srlconv.clab.yaml.j2 (used in paths under conversion_files).
 LAB_NAME = "conversion"
