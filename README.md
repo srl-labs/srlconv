@@ -34,7 +34,7 @@ The command will create a temporary workspace directory and deploy the lab, run 
 ```bash
 srlconv convert \
   --current-version 25.10.1 \
-  --current-config ./my-router.cfg.json \
+  --current-config my-current.cfg \
   --target-version 25.10.2
 ```
 
